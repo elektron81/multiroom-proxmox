@@ -193,6 +193,7 @@ cat >"$SETUP" <<SETUP_EOF
 set -e
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8 LANG=C.UTF-8   # bez ostrzeżeń perla o locale
+export PKGSYSTEM_ENABLE_FSYNC=0      # szybciej na dyskach HDD (mniej wymuszonych zapisów)
 ARCH="$ARCH"
 FALLBACK="$LMS_FALLBACK_URL"
 SETUP_EOF
@@ -200,24 +201,28 @@ cat >>"$SETUP" <<'SETUP_EOF'
 # Kontener dzieli sieć z hostem – wyłączamy usługi, które zajęłyby porty hosta.
 for s in ssh postfix; do systemctl disable --now "$s" >/dev/null 2>&1 || true; done
 
-echo "## apt update"
+APTP="-o APT::Status-Fd=1"   # apt wypisuje postęp (dlstatus/pmstatus) – instalator rysuje z tego pasek
+echo "@@P 0 10 Pobieranie listy pakietów"
 apt-get update
-echo "## pakiety"
-apt-get install -y curl ca-certificates bluez bluez-alsa-utils squeezelite alsa-utils
+echo "@@P 10 60 Instalacja pakietów: Bluetooth, Squeezelite"
+# shellcheck disable=SC2086
+apt-get install -y $APTP --no-install-recommends curl ca-certificates libio-socket-ssl-perl bluez bluez-alsa-utils squeezelite alsa-utils
 # domyślna usługa squeezelite z pakietu nie jest potrzebna (kreator tworzy własne)
 systemctl disable --now squeezelite >/dev/null 2>&1 || true
 
-echo "## Lyrion Music Server"
+echo "@@P 60 70 Pobieranie Lyrion Music Server"
 if [[ $ARCH == amd64 ]]; then PAT='_amd64\.deb'; else PAT='_all\.deb'; fi
-URL=$(curl -fsSL https://lyrion.org/lms-server-repository/latest.xml 2>/dev/null | grep -o "https://[^\"]*${PAT}" | head -1 || true)
+URL=$(curl -fsSL --max-time 30 https://lyrion.org/lms-server-repository/latest.xml 2>/dev/null | grep -o "https://[^\"]*${PAT}" | head -1 || true)
 [[ -n $URL ]] || URL="$FALLBACK"
 echo "pobieram: $URL"
-curl -fL --retry 3 -o /tmp/lms.deb "$URL"
-apt-get install -y /tmp/lms.deb
+curl -fsSL --retry 3 --connect-timeout 20 -o /tmp/lms.deb "$URL"
+echo "@@P 70 95 Instalacja Lyrion Music Server"
+# shellcheck disable=SC2086
+apt-get install -y $APTP /tmp/lms.deb
 rm -f /tmp/lms.deb
 systemctl enable --now lyrionmusicserver
 
-echo "## Bluetooth"
+echo "@@P 95 100 Uruchamianie usług"
 systemctl enable --now bluetooth
 systemctl enable --now bluealsa >/dev/null 2>&1 || systemctl enable --now bluealsad
 # średnia jakość SBC – kilka głośników na jednym adapterze gra bez przerw
@@ -229,14 +234,46 @@ if [[ -n $BIN ]] && "$BIN" --help 2>&1 | grep -q -- '--sbc-quality'; then
   systemctl daemon-reload
   systemctl restart "$SVC"
 fi
-echo "## gotowe"
+echo "@@P 100 100 Gotowe"
 SETUP_EOF
 run pct push "$CTID" "$SETUP" /root/muzyka-setup.sh --perms 755
 rm -f "$SETUP"
 
-step "Instaluję oprogramowanie w kontenerze (kilka minut)"
-echo "   pakiety systemowe, Bluetooth, Squeezelite, Lyrion Music Server..."
-run pct exec "$CTID" -- /root/muzyka-setup.sh
+step "Instaluję oprogramowanie w kontenerze"
+echo "   na dysku SSD ok. 3 minuty, na dysku HDD nawet 10–15 minut"
+pct exec "$CTID" -- /root/muzyka-setup.sh >>"$LOG" 2>&1 &
+PID=$!
+
+# Postęp całości: znaczniki "@@P od do opis" z dziennika + postęp apt (dlstatus/pmstatus).
+progress() {
+  awk -F: '
+    /^@@P /    { split($0, a, " "); s=a[2]; e=a[3]; t=substr($0, index($0, a[4])); st=""; v=0; d="" }
+    /^dlstatus:/ { st="dl"; v=$3; d="" }
+    /^pmstatus:/ { st="pm"; v=$3; d=$4 }
+    END {
+      if (s == "") { printf "0|Przygotowanie..."; exit }
+      p = 0
+      if (st == "dl") p = v / 2
+      if (st == "pm") p = 50 + v / 2
+      pct = s + (e - s) * p / 100
+      if (d != "") t = t " – " d
+      printf "%d|%s", pct, substr(t, 1, 64)
+    }' "$LOG" 2>/dev/null
+}
+
+{
+  last=-1
+  while kill -0 "$PID" 2>/dev/null; do
+    pr=$(progress); pct=${pr%%|*}; txt=${pr#*|}
+    [[ $pct =~ ^[0-9]+$ ]] || pct=0
+    (( pct < last )) && pct=$last; last=$pct   # pasek nigdy się nie cofa
+    printf 'XXX\n%d\n%s\n\n(na dysku HDD to może potrwać nawet 15 minut)\nXXX\n' "$pct" "$txt"
+    sleep 1
+  done
+  printf 'XXX\n100\nGotowe\nXXX\n'
+} | whiptail --title "$TITLE" --gauge "Przygotowanie..." 10 76 0
+wait "$PID"; RC=$?
+[[ $RC -eq 0 ]] || fail "instalacja oprogramowania w kontenerze nie powiodła się"
 LMS_VER=$(pct exec "$CTID" -- dpkg-query -W -f='${Version}' lyrionmusicserver 2>/dev/null || echo "?")
 ok "zainstalowano Lyrion Music Server $LMS_VER"
 
@@ -333,7 +370,8 @@ cmd_check() {
 
 cmd_install() {
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update && apt-get install -y bluez bluez-alsa-utils squeezelite alsa-utils || return 1
+  export PKGSYSTEM_ENABLE_FSYNC=0
+  apt-get update && apt-get install -y --no-install-recommends bluez bluez-alsa-utils squeezelite alsa-utils || return 1
   # Pakiet squeezelite włącza własną usługę domyślną – nie jest nam potrzebna,
   # chyba że to stara, ręczna konfiguracja (MiniBox) w /etc/systemd/system.
   if [[ ! -f /etc/systemd/system/squeezelite.service ]]; then

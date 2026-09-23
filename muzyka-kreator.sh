@@ -73,7 +73,8 @@ cmd_check() {
 
 cmd_install() {
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update && apt-get install -y bluez bluez-alsa-utils squeezelite alsa-utils || return 1
+  export PKGSYSTEM_ENABLE_FSYNC=0
+  apt-get update && apt-get install -y --no-install-recommends bluez bluez-alsa-utils squeezelite alsa-utils || return 1
   # Pakiet squeezelite włącza własną usługę domyślną – nie jest nam potrzebna,
   # chyba że to stara, ręczna konfiguracja (MiniBox) w /etc/systemd/system.
   if [[ ! -f /etc/systemd/system/squeezelite.service ]]; then
