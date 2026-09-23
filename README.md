@@ -1,4 +1,4 @@
-# Muzyka na Proxmoksie
+# Multiroom na Proxmoksie
 
 System muzyczny multiroom dla domowego serwera **Proxmox VE**. Łączy **Lyrion Music Server (LMS)** z głośnikami **Bluetooth**: radio internetowe, własna biblioteka i kilka pokoi grających razem. Nie trzeba do tego Raspberry Pi ani osobnych odtwarzaczy.
 
@@ -21,7 +21,7 @@ System muzyczny multiroom dla domowego serwera **Proxmox VE**. Łączy **Lyrion 
 W panelu Proxmoksa kliknij serwer, a potem **Shell**. Wklej:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/elektron81/muzyka-proxmox/main/muzyka-instalator.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/elektron81/multiroom-proxmox/main/muzyka-instalator.sh)"
 ```
 
 Wybierz **„Domyślna (zalecana)”** i poczekaj kilka minut. Na końcu instalator pokaże adres panelu LMS i zaproponuje dodanie pierwszego głośnika.
