@@ -192,6 +192,7 @@ cat >"$SETUP" <<SETUP_EOF
 #!/bin/bash
 set -e
 export DEBIAN_FRONTEND=noninteractive
+export LC_ALL=C.UTF-8 LANG=C.UTF-8   # bez ostrzeżeń perla o locale
 ARCH="$ARCH"
 FALLBACK="$LMS_FALLBACK_URL"
 SETUP_EOF
@@ -517,7 +518,9 @@ cmd_test() {
   source "$CONF_DIR/$n.env"
   systemctl stop "squeezelite@$n"
   sleep 1
-  timeout 12 speaker-test -D "$PCM" -c 2 -t sine -f 440 -l 1 >/tmp/muzyka-test.log 2>&1
+  # Mały bufor (0,2 s) – inaczej niektóre wersje BlueALSA wybierają bufor
+  # ~11 s i krótki test kończy się, zanim cokolwiek zagra. Ton gra ok. 4 s.
+  timeout 4 speaker-test -D "$PCM" -c 2 -t sine -f 440 -b 200000 -p 50000 -l 0 >/tmp/muzyka-test.log 2>&1
   local rc=$?
   systemctl start "squeezelite@$n"
   [[ $rc -eq 0 || $rc -eq 124 ]] || { tail -n 10 /tmp/muzyka-test.log; return 1; }
@@ -719,8 +722,11 @@ add_speaker() {
   fi
 
   if ask "$out\n$cfg\n\nZagrać krótki dźwięk testowy (ton 440 Hz) na głośniku?" 13; then
-    info "Gram dźwięk testowy..."
-    hx test "$slug" >/dev/null 2>&1
+    info "Gram dźwięk testowy (ok. 4 sekundy)..."
+    local terr
+    if ! terr=$(hx test "$slug" 2>&1); then
+      local t; t=$(mktemp); printf 'Test dźwięku się nie powiódł:\n\n%s\n' "$terr" >"$t"; showfile "$t"; rm -f "$t"
+    fi
     ask "Czy słyszałeś dźwięk testowy?" 8 || msg "Sprawdź głośność na głośniku i stan połączenia (menu: Stan głośników).\nKonfiguracja jest zapisana – możesz spróbować ponownie z menu Test dźwięku." 11
   fi
 
