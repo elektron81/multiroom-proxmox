@@ -3,7 +3,7 @@
 #  muzyka-kreator.sh – kreator głośników Bluetooth dla LMS (Proxmox)
 #
 #  Uruchamiać na HOŚCIE Proxmoksa jako root:
-#      muzyka      (po instalacji instalatorem)  albo:  bash muzyka-kreator.sh
+#      multiroom   (po instalacji instalatorem)  albo:  bash muzyka-kreator.sh
 #
 #  Wszystkie głośniki obsługuje JEDEN kontener (wykrywany automatycznie).
 #  Każdy głośnik dostaje własną instancję Squeezelite (squeezelite@NAZWA),
@@ -20,7 +20,7 @@ LMS_WEB=""        # adres panelu WWW LMS (puste = wylicz z LMS_IP)
 # Instalator zapisuje tu swoje ustawienia (numer kontenera, adres LMS):
 # shellcheck disable=SC1091
 [[ -f /etc/muzyka-kreator.conf ]] && source /etc/muzyka-kreator.conf
-TITLE="Muzyka na Proxmoksie – kreator"
+TITLE="Multiroom na Proxmoksie"
 HELPER=/usr/local/sbin/muzyka-helper.sh
 CTID=""
 
@@ -281,6 +281,303 @@ cmd_lms() {
   systemctl cat lyrionmusicserver >/dev/null 2>&1 && echo "127.0.0.1"
 }
 
+# ---------------------------------------------------------------------
+#  Strażnik muzyki – co 5 minut sprawdza, czy odtwarzacze, które mają
+#  grać, faktycznie grają. Jeśli nie – restartuje LMS i odtwarzacze
+#  i wznawia muzykę. Domyślnie wyłączony (włącza się z menu kreatora).
+# ---------------------------------------------------------------------
+write_straznik() {
+  cat >/usr/local/bin/muzyka-straznik.sh <<'STRAZNIK_EOF'
+#!/bin/bash
+# Strażnik muzyki. Wykrywa trzy sytuacje:
+#  A) LMS nie odpowiada,
+#  B) odtwarzacz jest w trybie "gra", ale czas utworu stoi (cisza),
+#  C) odtwarzacz grał 5 min temu, teraz stoi, a w logu LMS są błędy strumienia.
+# Wtedy restartuje LMS + odtwarzacze i wznawia granie. Max 3 restarty na godzinę.
+LOG=/var/log/muzyka-straznik.log
+STATE=/var/lib/muzyka-straznik
+mkdir -p "$STATE"
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S')  $*" >>"$LOG"; }
+
+LMS=127.0.0.1
+for f in /etc/muzyka/*.env; do
+  [[ -e $f ]] || continue
+  v=$(sed -n 's/^LMS="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$f"); [[ -n $v ]] && { LMS=$v; break; }
+done
+URL="http://$LMS:9000/jsonrpc.js"
+rpc() { curl -s -m 10 -H 'Content-Type: application/json' \
+  -d "{\"id\":1,\"method\":\"slim.request\",\"params\":[\"$1\",$2]}" "$URL"; }
+lms_ok() { rpc "" '["version","?"]' | jq -e '.result._version' >/dev/null 2>&1; }
+name_of() { rpc "$1" '["name","?"]' | jq -r '.result._value // empty' 2>/dev/null; }
+
+do_restart() {  # $1 = powód, $2.. = odtwarzacze do wznowienia
+  local why="$1"; shift
+  local now; now=$(date +%s)
+  touch "$STATE/restarty"
+  awk -v n="$now" '$1 > n-3600' "$STATE/restarty" >"$STATE/r.tmp"; mv "$STATE/r.tmp" "$STATE/restarty"
+  if [[ $(wc -l <"$STATE/restarty") -ge 3 ]]; then
+    log "POMIJAM restart ($why) – już 3 restarty w ostatniej godzinie. Sprawdź internet / stację."
+    return
+  fi
+  echo "$now" >>"$STATE/restarty"
+  log "RESTART: $why"
+  systemctl cat lyrionmusicserver >/dev/null 2>&1 && systemctl restart lyrionmusicserver
+  systemctl restart bluealsa >/dev/null 2>&1 || systemctl restart bluealsad >/dev/null 2>&1
+  sleep 2
+  systemctl restart "squeezelite@*" >/dev/null 2>&1
+  [[ -f /etc/systemd/system/squeezelite.service ]] && systemctl restart squeezelite
+  for _ in $(seq 1 30); do lms_ok && break; sleep 3; done
+  sleep 20   # odtwarzacze muszą ponownie połączyć się z LMS
+  local p
+  local names=""
+  for p in "$@"; do rpc "$p" '["play"]' >/dev/null; names+="$(name_of "$p") "; done
+  [[ $# -gt 0 ]] && log "Wznowiono granie na: $names"
+}
+
+# --- A) LMS żyje? ---
+if ! lms_ok; then
+  sleep 30
+  lms_ok || { do_restart "LMS nie odpowiada"; exit 0; }
+fi
+
+# --- odtwarzacze w trybie "gra": pierwszy pomiar czasu ---
+declare -A T1
+mapfile -t PLAYERS < <(rpc "" '["players","0","99"]' | jq -r '.result.players_loop[]? | select(.connected==1) | .playerid')
+for p in "${PLAYERS[@]}"; do
+  s=$(rpc "$p" '["status","-","1"]')
+  [[ $(jq -r '.result.mode' <<<"$s") == play ]] && T1[$p]=$(jq -r '.result.time // 0' <<<"$s")
+done
+
+# --- B) czas stoi mimo trybu "gra" ---
+STUCK=(); NOW_PLAYING=()
+if [[ ${#T1[@]} -gt 0 ]]; then
+  sleep 20
+  for p in "${!T1[@]}"; do
+    s=$(rpc "$p" '["status","-","1"]')
+    [[ $(jq -r '.result.mode' <<<"$s") == play ]] || continue
+    t2=$(jq -r '.result.time // 0' <<<"$s")
+    if awk -v a="${T1[$p]}" -v b="$t2" 'BEGIN{exit !(b-a < 5)}'; then STUCK+=("$p"); else NOW_PLAYING+=("$p"); fi
+  done
+fi
+if [[ ${#STUCK[@]} -gt 0 ]]; then
+  names=""; for p in "${STUCK[@]}"; do names+="$(name_of "$p") "; done
+  do_restart "cisza mimo trybu gra: $names" "${STUCK[@]}" "${NOW_PLAYING[@]}"
+  printf '%s\n' "${STUCK[@]}" "${NOW_PLAYING[@]}" >"$STATE/grajace"
+  exit 0
+fi
+
+# --- C) grało poprzednio, teraz stoi, a LMS zgłaszał błędy strumienia ---
+LOST=()
+if [[ -f $STATE/grajace ]]; then
+  while read -r p; do
+    [[ -n $p ]] || continue
+    printf '%s\n' "${NOW_PLAYING[@]}" | grep -qx "$p" || LOST+=("$p")
+  done <"$STATE/grajace"
+fi
+if [[ ${#LOST[@]} -gt 0 ]]; then
+  cutoff=$(date -d '-6 min' '+%y-%m-%d %H:%M:%S')
+  errs=$(awk -v c="$cutoff" 'substr($0,2,17) >= c' /var/log/squeezeboxserver/server.log 2>/dev/null \
+         | grep -cE "Can't connect to remote server|Select task failed|Can't call method" || true)
+  if [[ ${errs:-0} -gt 0 ]]; then
+    names=""; for p in "${LOST[@]}"; do names+="$(name_of "$p") "; done
+    do_restart "muzyka przerwana przez błąd strumienia ($errs błędów w logu LMS): $names" "${LOST[@]}" "${NOW_PLAYING[@]}"
+    printf '%s\n' "${LOST[@]}" "${NOW_PLAYING[@]}" >"$STATE/grajace"
+    exit 0
+  fi
+fi
+
+printf '%s\n' "${NOW_PLAYING[@]}" >"$STATE/grajace"
+exit 0
+STRAZNIK_EOF
+  chmod 755 /usr/local/bin/muzyka-straznik.sh
+
+  cat >/etc/systemd/system/muzyka-straznik.service <<'EOF'
+[Unit]
+Description=Muzyka – strażnik (automatyczny restart przy ciszy)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/muzyka-straznik.sh
+EOF
+
+  cat >/etc/systemd/system/muzyka-straznik.timer <<'EOF'
+[Unit]
+Description=Muzyka – strażnik co 5 minut
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+cmd_straznik() {
+  case "${1:-status}" in
+    on)
+      if ! command -v jq >/dev/null || ! command -v curl >/dev/null; then
+        DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq curl >/dev/null 2>&1 || { echo "Nie udało się zainstalować jq/curl."; return 1; }
+      fi
+      write_straznik
+      rm -f /var/lib/muzyka-straznik/grajace
+      systemctl daemon-reload
+      systemctl enable --now muzyka-straznik.timer >/dev/null 2>&1
+      echo "$(date '+%Y-%m-%d %H:%M:%S')  Strażnik WŁĄCZONY" >>/var/log/muzyka-straznik.log
+      echo "Strażnik włączony." ;;
+    off)
+      systemctl disable --now muzyka-straznik.timer >/dev/null 2>&1
+      echo "$(date '+%Y-%m-%d %H:%M:%S')  Strażnik WYŁĄCZONY" >>/var/log/muzyka-straznik.log
+      echo "Strażnik wyłączony." ;;
+    status)
+      if systemctl is-enabled --quiet muzyka-straznik.timer 2>/dev/null; then echo "ON"; else echo "OFF"; fi ;;
+    log)
+      tail -n 25 /var/log/muzyka-straznik.log 2>/dev/null || echo "(brak wpisów)" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------
+#  Ekran konsoli kontenera – po otwarciu "Konsoli" w Proxmoksie od razu
+#  widać adres LMS, IP, stan głośników i opis menu. Enter = logowanie.
+# ---------------------------------------------------------------------
+write_ekran() {
+  cat >/usr/local/bin/multiroom-ekran.sh <<'EKRAN_EOF'
+#!/bin/bash
+# Wypisuje ekran informacyjny Multiroom (używany na konsoli kontenera).
+B=$'\e[1m'; G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; C=$'\e[36m'; N=$'\e[0m'
+IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+TS=$(ip -4 -o addr show tailscale0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+LINE="${C}  ════════════════════════════════════════════════════════════════════${N}"
+echo
+echo "$LINE"
+echo "${B}    MULTIROOM NA PROXMOKSIE${N}          kontener: $(hostname)"
+echo "$LINE"
+if systemctl cat lyrionmusicserver >/dev/null 2>&1; then
+  echo "    Panel LMS:   ${B}http://${IP:-?}:9000${N}   (otwórz w przeglądarce)"
+fi
+echo "    Adres IP:    ${IP:-brak}   (wspólny z serwerem Proxmox)"
+[[ -n $TS ]] && echo "    Tailscale:   $TS"
+echo
+if systemctl cat lyrionmusicserver >/dev/null 2>&1; then
+  v=$(dpkg-query -W -f='${Version}' lyrionmusicserver 2>/dev/null)
+  if systemctl is-active --quiet lyrionmusicserver; then s="${G}✓ działa${N} (wersja $v)"; else s="${R}✗ NIE DZIAŁA${N}"; fi
+  echo "    Serwer LMS:  $s"
+fi
+ctrl=$(bluetoothctl list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '/Controller/{print $2; exit}')
+if [[ -n $ctrl ]]; then s="${G}✓ adapter $ctrl${N}"; else s="${R}✗ brak adaptera${N}"; fi
+echo "    Bluetooth:   $s"
+if systemctl is-enabled --quiet muzyka-straznik.timer 2>/dev/null; then s="${G}✓ włączony${N}"; else s="${Y}wyłączony${N}"; fi
+echo "    Strażnik:    $s"
+echo
+echo "    ${B}Głośniki:${N}"
+n=0
+for f in /etc/muzyka/*.env; do
+  [[ -e $f ]] || continue
+  n=$((n+1)); BT_MAC=""; PLAYER_NAME=""
+  # shellcheck disable=SC1090
+  . "$f"
+  i=$(basename "$f" .env)
+  if bluetoothctl info "$BT_MAC" 2>/dev/null | grep -q "Connected: yes"; then bt="${G}● połączony${N}"; else bt="${R}○ niepołączony${N}"; fi
+  if systemctl is-active --quiet "squeezelite@$i"; then sq="odtwarzacz działa"; else sq="${R}odtwarzacz stoi${N}"; fi
+  printf '      %-26s %s, %s\n' "${PLAYER_NAME:0:26}" "$bt" "$sq"
+done
+if [[ -f /etc/systemd/system/squeezelite.service ]]; then
+  n=$((n+1))
+  if systemctl is-active --quiet squeezelite; then sq="odtwarzacz działa"; else sq="${R}odtwarzacz stoi${N}"; fi
+  printf '      %-26s %s\n' "(stara konfiguracja)" "$sq"
+fi
+[[ $n -eq 0 ]] && echo "      (brak – dodaj głośnik w menu multiroom)"
+echo
+echo "    ${B}Menu${N} – na serwerze Proxmox otwórz ${B}Shell${N} i wpisz: ${B}multiroom${N}"
+echo "      1 Dodaj głośnik     – sparuj nowy głośnik Bluetooth (nowy pokój)"
+echo "      2 Stan głośników    – połączenia i odtwarzacze"
+echo "      3 Test dźwięku      – krótki sygnał na wybranym głośniku"
+echo "      4 Usuń głośnik      – usuwa odtwarzacz (i ewentualnie parowanie)"
+echo "      5 Restart muzyki    – gdy muzyka nagle ucichła"
+echo "      6 Strażnik muzyki   – automatyczny restart przy ciszy"
+echo "      7 Ustawienia        – adres LMS, ten ekran"
+echo
+echo "    Stan z: $(date '+%d.%m.%Y %H:%M:%S')"
+EKRAN_EOF
+  chmod 755 /usr/local/bin/multiroom-ekran.sh
+
+  cat >/usr/local/bin/multiroom-konsola <<'KONSOLA_EOF'
+#!/bin/bash
+# Pokazuje ekran informacyjny na konsoli; Enter = zwykłe logowanie.
+trap '' INT QUIT TSTP
+while true; do
+  printf '\e[H\e[2J'
+  /usr/local/bin/multiroom-ekran.sh 2>/dev/null
+  printf '\n    \e[1m[Enter]\e[0m – zaloguj się          (ekran odświeża się co 5 s)\n'
+  if read -r -s -n 1 -t 5 _; then
+    printf '\e[H\e[2J'
+    exec /sbin/agetty -o '-p -- \u' --noclear -t 60 - "${TERM:-linux}"
+  fi
+done
+KONSOLA_EOF
+  chmod 755 /usr/local/bin/multiroom-konsola
+
+  # po zalogowaniu też pokaż ekran (raz)
+  cat >/etc/profile.d/multiroom.sh <<'EOF'
+[ -x /usr/local/bin/multiroom-ekran.sh ] && case "$-" in *i*) /usr/local/bin/multiroom-ekran.sh ;; esac
+EOF
+}
+
+getty_units() {
+  systemctl list-units --type=service --state=running --no-legend --plain 2>/dev/null \
+    | awk '{print $1}' | grep -E '^(container-getty@|getty@|console-getty)' || true
+}
+
+ekran_dropin_dir() {  # $1 = nazwa jednostki
+  local u="$1"
+  if [[ $u == *@* ]]; then echo "/etc/systemd/system/${u%%@*}@.service.d"; else echo "/etc/systemd/system/$u.d"; fi
+}
+
+ekran_on() {
+  write_ekran
+  local u d units=()
+  for u in $(getty_units); do
+    # tylko konsole, które dostają terminal na wejściu (tak jak w Proxmoksie)
+    [[ $(systemctl show -p StandardInput --value "$u") == tty* ]] || continue
+    d=$(ekran_dropin_dir "$u"); mkdir -p "$d"
+    printf '[Service]\nExecStart=\nExecStart=-/usr/local/bin/multiroom-konsola\n' >"$d/multiroom.conf"
+    units+=("$u")
+  done
+  systemctl daemon-reload
+  [[ ${#units[@]} -gt 0 ]] && systemctl restart "${units[@]}"
+  return 0
+}
+
+ekran_off() {
+  rm -f /etc/systemd/system/*getty*.d/multiroom.conf /etc/profile.d/multiroom.sh
+  systemctl daemon-reload
+  local units; mapfile -t units < <(getty_units)
+  [[ ${#units[@]} -gt 0 ]] && systemctl restart "${units[@]}"
+  return 0
+}
+
+cmd_ekran() {
+  case "${1:-auto}" in
+    auto)   # przy każdym uruchomieniu menu: odśwież pliki; włącz, jeśli nie wyłączono ręcznie
+      [[ -f $CONF_DIR/ekran.off ]] && return 0
+      if compgen -G "/etc/systemd/system/*getty*.d/multiroom.conf" >/dev/null; then write_ekran; else ekran_on; fi ;;
+    on)  rm -f "$CONF_DIR/ekran.off"; ekran_on; echo "Ekran konsoli włączony." ;;
+    off) touch "$CONF_DIR/ekran.off"; ekran_off; echo "Ekran konsoli wyłączony." ;;
+    status) if [[ -f $CONF_DIR/ekran.off ]]; then echo OFF; else echo ON; fi ;;
+  esac
+}
+
+cmd_restart() {
+  systemctl cat lyrionmusicserver >/dev/null 2>&1 && systemctl restart lyrionmusicserver
+  systemctl restart bluealsa >/dev/null 2>&1 || systemctl restart bluealsad >/dev/null 2>&1
+  sleep 2
+  systemctl restart "squeezelite@*" >/dev/null 2>&1
+  [[ -f /etc/systemd/system/squeezelite.service ]] && systemctl restart squeezelite
+  echo "OK"
+}
+
 cmd_list() {
   local f
   for f in "$CONF_DIR"/*.env; do
@@ -339,8 +636,8 @@ cmd_remove() {
 
 sub="${1:-}"; shift || true
 case "$sub" in
-  check|install|scan|pair|configure|test|list|lms|status|remove) "cmd_$sub" "$@" ;;
-  *) echo "Użycie: $0 {check|install|scan|pair|configure|test|list|lms|status|remove}"; exit 1 ;;
+  check|install|scan|pair|configure|test|list|lms|status|remove|restart|straznik|ekran) "cmd_$sub" "$@" ;;
+  *) echo "Użycie: $0 {check|install|scan|pair|configure|test|list|lms|status|remove|restart|straznik|ekran}"; exit 1 ;;
 esac
 HELPER_EOF
 }
@@ -510,9 +807,52 @@ remove_speaker() {
   msg "$out\n\nW LMS stary odtwarzacz zniknie po chwili (albo usuń go ręcznie w Ustawienia → Odtwarzacze)." 11
 }
 
+restart_all() {
+  ask "Uruchomić ponownie LMS i wszystkie odtwarzacze?\n\nPomaga, gdy muzyka nagle ucichła, a głośniki są połączone.\nMuzyka na chwilę się zatrzyma – potem włącz ją ponownie w LMS." 12 || return
+  info "Uruchamiam ponownie LMS i odtwarzacze...\n\nTo potrwa ok. 30 sekund."
+  hx restart >/dev/null 2>&1
+  sleep 25
+  msg "Gotowe. Włącz muzykę ponownie w LMS:\n    $LMS_WEB" 9
+}
+
+straznik_menu() {
+  while true; do
+    local st c t
+    st=$(hx straznik status 2>/dev/null)
+    [[ $st == ON ]] && st="WŁĄCZONY" || st="WYŁĄCZONY"
+    c=$(whiptail --title "$TITLE" --menu "Strażnik muzyki:  $st\n\nCo 5 minut sprawdza, czy głośniki, które mają grać, grają.\nGdy wykryje ciszę (np. zawieszone radio), sam restartuje LMS\ni wznawia muzykę. Najwyżej 3 restarty na godzinę." 18 74 4 \
+      "1" "Włącz strażnika" \
+      "2" "Wyłącz strażnika" \
+      "3" "Pokaż, co strażnik robił (dziennik)" \
+      "0" "Powrót" 3>&1 1>&2 2>&3) || return
+    case "$c" in
+      1) info "Włączam strażnika..."; msg "$(hx straznik on 2>&1)\n\nPierwsze sprawdzenie za 5 minut." 9 ;;
+      2) msg "$(hx straznik off 2>&1)" 8 ;;
+      3) t=$(mktemp); hx straznik log >"$t" 2>&1; showfile "$t"; rm -f "$t" ;;
+      0) return ;;
+    esac
+  done
+}
+
 settings() {
-  local ip; ip=$(input "Adres serwera LMS (używany dla NOWO dodawanych głośników):" "$LMS_IP") || return
-  [[ -n $ip ]] && LMS_IP="$ip"
+  while true; do
+    local c ek
+    ek=$(hx ekran status 2>/dev/null); [[ $ek == ON ]] && ek="włączony" || ek="wyłączony"
+    c=$(whiptail --title "$TITLE" --menu "Ustawienia" 14 74 3 \
+      "1" "Adres serwera LMS (teraz: $LMS_IP)" \
+      "2" "Ekran informacyjny na konsoli kontenera ($ek)" \
+      "0" "Powrót" 3>&1 1>&2 2>&3) || return
+    case "$c" in
+      1) local ip; ip=$(input "Adres serwera LMS (używany dla NOWO dodawanych głośników):" "$LMS_IP") || continue
+         [[ -n $ip ]] && LMS_IP="$ip" ;;
+      2) if [[ $ek == włączony ]]; then
+           ask "Wyłączyć ekran informacyjny?\n\nKonsola kontenera wróci do zwykłego ekranu logowania." 10 && msg "$(hx ekran off 2>&1)" 8
+         else
+           msg "$(hx ekran on 2>&1)\n\nOtwórz Konsolę kontenera w Proxmoksie – ekran pojawi się sam." 10
+         fi ;;
+      0) return ;;
+    esac
+  done
 }
 
 # =====================================================================
@@ -535,21 +875,27 @@ detect_lms() {
 
 choose_container
 detect_lms
+hx ekran auto >/dev/null 2>&1 || true   # ekran informacyjny na konsoli kontenera
+[[ ${1:-} == --przygotuj ]] && exit 0     # używane przez instalator
 
 while true; do
-  choice=$(whiptail --title "$TITLE" --menu "Kontener: $CTID    LMS: $LMS_WEB\n\nCo chcesz zrobić?" 19 70 7 \
+  choice=$(whiptail --title "$TITLE" --menu "Kontener: $CTID    LMS: $LMS_WEB\n\nCo chcesz zrobić?" 21 70 9 \
     "1" "Dodaj nowy głośnik (nowy pokój)" \
     "2" "Stan głośników" \
     "3" "Test dźwięku" \
     "4" "Usuń głośnik" \
-    "5" "Ustawienia (adres LMS)" \
+    "5" "Uruchom ponownie muzykę (gdy ucichło)" \
+    "6" "Strażnik muzyki (automatyczny restart)" \
+    "7" "Ustawienia (adres LMS, ekran konsoli)" \
     "0" "Wyjście" 3>&1 1>&2 2>&3) || break
   case "$choice" in
     1) add_speaker ;;
     2) show_status ;;
     3) test_speaker ;;
     4) remove_speaker ;;
-    5) settings ;;
+    5) restart_all ;;
+    6) straznik_menu ;;
+    7) settings ;;
     0) break ;;
   esac
 done

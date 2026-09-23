@@ -1,4 +1,4 @@
-# Multiroom na Proxmox
+# Multiroom na Proxmoksie
 
 System muzyczny multiroom dla domowego serwera **Proxmox VE**. Łączy **Lyrion Music Server (LMS)** z głośnikami **Bluetooth**: radio internetowe, własna biblioteka i kilka pokoi grających razem. Nie trzeba do tego Raspberry Pi ani osobnych odtwarzaczy.
 
@@ -8,7 +8,8 @@ System muzyczny multiroom dla domowego serwera **Proxmox VE**. Łączy **Lyrion 
 - **Głośniki Bluetooth jako odtwarzacze**. Każdy głośnik jest osobnym odtwarzaczem w LMS.
 - **Multiroom**. Głośniki można synchronizować, żeby grały to samo w kilku pokojach.
 - **Automatyczne ponowne łączenie** po wyłączeniu głośnika, restarcie albo zaniku prądu.
-- **Kreator `muzyka`** z prostym menu do dodawania, testowania i usuwania głośników.
+- **Polecenie `multiroom`** z prostym menu do dodawania, testowania i usuwania głośników.
+- **Ekran informacyjny na konsoli kontenera**: po kliknięciu „Konsola” w Proxmoksie od razu widać adres panelu LMS, adres IP, stan głośników i opis menu. Enter otwiera zwykłe logowanie. Ekran wyłączysz w menu **Ustawienia**.
 
 ## Wymagania
 
@@ -40,12 +41,22 @@ Postęp widać na pasku w konsoli. Na dysku HDD pasek może na dłużej zatrzyma
 W konsoli Proxmoksa wpisz:
 
 ```bash
-muzyka
+multiroom
 ```
 
 Z menu wybierz **„Dodaj nowy głośnik”**, przełącz głośnik w tryb parowania i wybierz go z listy. Po około minucie głośnik pojawi się w LMS.
 
 Granie w kilku pokojach naraz: w LMS wybierz odtwarzacz, otwórz **Ustawienia**, a potem **Synchronizuj**.
+
+## Aktualizacja kreatora
+
+Nową wersję polecenia `multiroom` pobierzesz z GitHuba jednym poleceniem w konsoli Proxmoksa:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/elektron81/multiroom-proxmox/main/muzyka-kreator.sh -o /usr/local/bin/multiroom && chmod +x /usr/local/bin/multiroom && echo OK
+```
+
+Twoje głośniki i ustawienia zostają bez zmian.
 
 ## Adapter Bluetooth
 
@@ -74,10 +85,12 @@ lsusb | tail -n 5; echo ----; ls /sys/class/bluetooth; echo ----; dmesg | grep -
 
 1. Wyjmij stary adapter, włóż nowy i sprawdź go poleceniem powyżej.
 2. Zrestartuj kontener: `pct reboot NUMER` (zamień `NUMER` na numer kontenera).
-3. **Sparuj głośniki od nowa.** Parowanie jest przypisane do konkretnego adaptera. W kreatorze `muzyka`, dla każdego głośnika: **Usuń głośnik** (z rozparowaniem), a potem **Dodaj nowy głośnik**. Nadaj głośnikom te same nazwy co wcześniej, a LMS zachowa ich ustawienia.
+3. **Sparuj głośniki od nowa.** Parowanie jest przypisane do konkretnego adaptera. W menu `multiroom`, dla każdego głośnika: **Usuń głośnik** (z rozparowaniem), a potem **Dodaj nowy głośnik**. Nadaj głośnikom te same nazwy co wcześniej, a LMS zachowa ich ustawienia.
 
 ## Wskazówki
 
+- **Strażnik muzyki (automatyczny restart).** W menu `multiroom` wybierz **„Strażnik muzyki”** i włącz go. Co 5 minut sprawdza, czy głośniki, które mają grać, faktycznie grają. Jeśli radio się zawiesi (tryb „gra”, a cisza) albo przerwie przez błąd strumienia, strażnik sam zrestartuje LMS i wznowi muzykę. Robi najwyżej 3 restarty na godzinę. Muzyki zatrzymanej ręcznie nie rusza. Domyślnie jest **wyłączony**. W tym samym menu możesz go wyłączyć i zobaczyć jego dziennik.
+- **Muzyka nagle ucichła, a głośnik jest połączony.** Wpisz `multiroom` i wybierz **„Uruchom ponownie muzykę”**. Menu zrestartuje LMS i odtwarzacze. Jeśli nie gra tylko jedna stacja, jej adres mógł się zmienić. Wyszukaj ją ponownie przez **Radio → TuneIn** albo **Radio Browser**.
 - **Echo między głośnikami.** Każdy głośnik Bluetooth ma inne opóźnienie. Wyrównasz je w LMS: **Ustawienia → Odtwarzacz → Audio → Synchronization Delay**. Ustaw je w tym głośniku, który gra wcześniej, np. 100 ms, i dostrój na słuch.
 - **Przerywanie dźwięku.** Postaw adapter USB z dala od obudowy serwera (przedłużacz USB, port USB 2.0). Porty USB 3.0 zakłócają Bluetooth.
 - **Zasięg.** Wszystkie głośniki muszą być w zasięgu adaptera w serwerze, czyli zwykle około 10 m, mniej przez ściany.
