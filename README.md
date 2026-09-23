@@ -43,6 +43,10 @@ Granie w kilku pokojach naraz: w LMS wybierz odtwarzacz, otwórz **Ustawienia**,
 - **Echo między głośnikami.** Każdy głośnik Bluetooth ma inne opóźnienie. Wyrównasz je w LMS: **Ustawienia → Odtwarzacz → Audio → Synchronization Delay**. Ustaw je w tym głośniku, który gra wcześniej, np. 100 ms, i dostrój na słuch.
 - **Przerywanie dźwięku.** Postaw adapter USB z dala od obudowy serwera (przedłużacz USB, port USB 2.0). Porty USB 3.0 zakłócają Bluetooth.
 - **Zasięg.** Wszystkie głośniki muszą być w zasięgu adaptera w serwerze, czyli zwykle około 10 m, mniej przez ściany.
+- **Strona ustawień LMS się nie otwiera („restricted to the local network”).** LMS pokazuje ustawienia tylko komputerom z sieci lokalnej. Jeśli łączysz się przez **Tailscale** albo VPN, wyłącz go na chwilę albo otwórz panel z urządzenia w domowym Wi-Fi. Możesz też na stałe wyłączyć tę blokadę (zamień `NUMER` na numer kontenera):
+  ```bash
+  pct exec NUMER -- bash -c 'systemctl stop lyrionmusicserver; f=/var/lib/squeezeboxserver/prefs/server.prefs; grep -q "^protectSettings:" $f && sed -i "s/^protectSettings:.*/protectSettings: 0/" $f || echo "protectSettings: 0" >> $f; systemctl start lyrionmusicserver'
+  ```
 - **Kopia zapasowa.** Dodaj kontener do zadania backupu: **Centrum danych → Kopia zapasowa**.
 
 ## Jak to działa
