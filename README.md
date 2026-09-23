@@ -26,6 +26,15 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/elektron81/multiroom-pro
 
 Wybierz **„Domyślna (zalecana)”** i poczekaj kilka minut. Na końcu instalator pokaże adres panelu LMS i zaproponuje dodanie pierwszego głośnika.
 
+**Czas instalacji zależy od dysku:**
+
+| Dysk, na którym powstaje kontener | Czas instalacji |
+|---|---|
+| SSD / NVMe | ok. 3–5 minut |
+| HDD (dysk talerzowy) | **nawet 10–15 minut** |
+
+Postęp widać na pasku w konsoli. Na dysku HDD pasek może na dłużej zatrzymać się przy instalacji pakietów. To normalne, nie przerywaj instalacji. W trybie **„Zaawansowana”** możesz wybrać, na którym dysku ma powstać kontener. Jeśli masz SSD, wybierz SSD.
+
 ## Dodawanie kolejnych głośników
 
 W konsoli Proxmoksa wpisz:
@@ -37,6 +46,35 @@ muzyka
 Z menu wybierz **„Dodaj nowy głośnik”**, przełącz głośnik w tryb parowania i wybierz go z listy. Po około minucie głośnik pojawi się w LMS.
 
 Granie w kilku pokojach naraz: w LMS wybierz odtwarzacz, otwórz **Ustawienia**, a potem **Synchronizuj**.
+
+## Adapter Bluetooth
+
+Możesz użyć dowolnego adaptera USB, który **obsługuje Linux**. Większość działa od razu, bez instalowania sterowników.
+
+| Chip w adapterze | Przykładowe modele | Uwagi |
+|---|---|---|
+| **Realtek RTL8761B / RTL8761BU** | TP-Link UB500, UGREEN BT 5.0, ASUS USB-BT500 | najlepszy wybór, są też wersje z anteną |
+| **Intel** (AX200, AX210 itp.) | Bluetooth wbudowany w płytę główną lub kartę Wi-Fi | działa bez problemu |
+| **CSR8510** | starsze, tanie adaptery BT 4.0 | działają, ale podróbki bywają kapryśne |
+
+**Lepiej unikać** tanich adapterów „Bluetooth 5.3/5.4” na chipach **Actions ATS2851** i **Barrot**. Często działają tylko na Windowsie. Przy zakupie szukaj w opisie słów **„Linux”** albo **„RTL8761B”**. Wersja Bluetootha nie ma dużego znaczenia dla muzyki. Na zasięg bardziej wpływa zewnętrzna antena.
+
+### Jak sprawdzić, czy adapter działa
+
+Podłącz adapter do serwera i wklej w konsoli Proxmoksa:
+
+```bash
+lsusb | tail -n 5; echo ----; ls /sys/class/bluetooth; echo ----; dmesg | grep -i bluetooth | tail -n 5
+```
+
+- W środkowej części widać **`hci0`** (albo `hci1`): adapter działa.
+- Jest pusto albo pojawia się błąd ze słowem `firmware`: Linux nie obsługuje tego adaptera albo brakuje mu sterownika. Najprościej wymienić go na model z tabeli powyżej.
+
+### Wymiana adaptera na inny
+
+1. Wyjmij stary adapter, włóż nowy i sprawdź go poleceniem powyżej.
+2. Zrestartuj kontener: `pct reboot NUMER` (zamień `NUMER` na numer kontenera).
+3. **Sparuj głośniki od nowa.** Parowanie jest przypisane do konkretnego adaptera. W kreatorze `muzyka`, dla każdego głośnika: **Usuń głośnik** (z rozparowaniem), a potem **Dodaj nowy głośnik**. Nadaj głośnikom te same nazwy co wcześniej, a LMS zachowa ich ustawienia.
 
 ## Wskazówki
 
