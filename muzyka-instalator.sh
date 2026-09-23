@@ -47,6 +47,18 @@ fail() {
 # uruchamia polecenie, wynik zapisuje do dziennika; przy błędzie kończy
 run() { "$@" >>"$LOG" 2>&1 || fail "polecenie nie powiodło się: $*"; }
 
+# zamienia dowolny tekst na poprawną nazwę hosta (np. "Music Server" -> "music-server")
+hostify() {
+  local s="$1" i
+  local from=(ą ć ę ł ń ó ś ź ż Ą Ć Ę Ł Ń Ó Ś Ź Ż)
+  local to=(a c e l n o s z z a c e l n o s z z)
+  for i in "${!from[@]}"; do s=${s//${from[$i]}/${to[$i]}}; done
+  s=$(printf '%s' "$s" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9' '-' | tr -s '-')
+  s=${s#-}; s=${s:0:63}; s=${s%-}
+  [[ -z $s ]] && s="muzyka"
+  printf '%s' "$s"
+}
+
 msg() { whiptail --title "$TITLE" --msgbox "$1" "${2:-12}" "${3:-74}"; }
 ask() { whiptail --title "$TITLE" --yesno "$1" "${2:-12}" "${3:-74}"; }
 input() { whiptail --title "$TITLE" --inputbox "$1" 10 74 "${2:-}" 3>&1 1>&2 2>&3; }
@@ -118,7 +130,9 @@ MODE=$(whiptail --title "$TITLE" --menu "Wybierz sposób instalacji:" 13 74 2 \
 
 if [[ $MODE == 2 ]]; then
   CTID=$(input "Numer (ID) nowego kontenera:" "$CTID") || exit 0
-  HN=$(input "Nazwa kontenera (hostname):" "$HN") || exit 0
+  HN=$(input "Nazwa kontenera (hostname).\nDozwolone: litery, cyfry i myślnik, bez spacji – np. music-server:" "$HN") || exit 0
+  HN_IN="$HN"; HN=$(hostify "$HN")
+  [[ $HN != "$HN_IN" ]] && msg "Nazwa \"$HN_IN\" zawiera niedozwolone znaki.\n\nKontener dostanie nazwę:  $HN" 10
   items=()
   while read -r name avail; do
     items+=("$name" "wolne: $((avail/1024/1024)) GB")
