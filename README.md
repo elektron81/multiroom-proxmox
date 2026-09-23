@@ -1,5 +1,4 @@
-# Multiroom na Proxmoksie
-
+# MULTIROOM NA PROXMOX
 System muzyczny multiroom dla domowego serwera **Proxmox VE**. Łączy **Lyrion Music Server (LMS)** z głośnikami **Bluetooth**: radio internetowe, własna biblioteka i kilka pokoi grających razem. Nie trzeba do tego Raspberry Pi ani osobnych odtwarzaczy.
 
 ## Co dostajesz
