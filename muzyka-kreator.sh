@@ -20,7 +20,7 @@ LMS_WEB=""        # adres panelu WWW LMS (puste = wylicz z LMS_IP)
 # Instalator zapisuje tu swoje ustawienia (numer kontenera, adres LMS):
 # shellcheck disable=SC1091
 [[ -f /etc/muzyka-kreator.conf ]] && source /etc/muzyka-kreator.conf
-TITLE="Multiroom na Proxmoksie"
+TITLE="Multiroom na Proxmox"
 HELPER=/usr/local/sbin/muzyka-helper.sh
 CTID=""
 
@@ -443,7 +443,10 @@ cmd_straznik() {
 #  widać adres LMS, IP, stan głośników i opis menu. Enter = logowanie.
 # ---------------------------------------------------------------------
 write_ekran() {
-  cat >/usr/local/bin/multiroom-ekran.sh <<'EKRAN_EOF'
+  # Pliki zapisujemy obok i podmieniamy przez mv – działająca konsola
+  # nie czyta wtedy pliku w trakcie jego nadpisywania.
+  local old_k; old_k=$(md5sum /usr/local/bin/multiroom-konsola 2>/dev/null)
+  cat >/usr/local/bin/multiroom-ekran.sh.new <<'EKRAN_EOF'
 #!/bin/bash
 # Wypisuje ekran informacyjny Multiroom (używany na konsoli kontenera).
 B=$'\e[1m'; G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; C=$'\e[36m'; N=$'\e[0m'
@@ -452,7 +455,7 @@ TS=$(ip -4 -o addr show tailscale0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
 LINE="${C}  ════════════════════════════════════════════════════════════════════${N}"
 echo
 echo "$LINE"
-echo "${B}    MULTIROOM NA PROXMOKSIE${N}          kontener: $(hostname)"
+echo "${B}    MULTIROOM NA PROXMOX${N}          kontener: $(hostname)"
 echo "$LINE"
 if systemctl cat lyrionmusicserver >/dev/null 2>&1; then
   echo "    Panel LMS:   ${B}http://${IP:-?}:9000${N}   (otwórz w przeglądarce)"
@@ -465,7 +468,7 @@ if systemctl cat lyrionmusicserver >/dev/null 2>&1; then
   if systemctl is-active --quiet lyrionmusicserver; then s="${G}✓ działa${N} (wersja $v)"; else s="${R}✗ NIE DZIAŁA${N}"; fi
   echo "    Serwer LMS:  $s"
 fi
-ctrl=$(bluetoothctl list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '/Controller/{print $2; exit}')
+ctrl=$(timeout 3 bluetoothctl list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '/Controller/{print $2; exit}')
 if [[ -n $ctrl ]]; then s="${G}✓ adapter $ctrl${N}"; else s="${R}✗ brak adaptera${N}"; fi
 echo "    Bluetooth:   $s"
 if systemctl is-enabled --quiet muzyka-straznik.timer 2>/dev/null; then s="${G}✓ włączony${N}"; else s="${Y}wyłączony${N}"; fi
@@ -479,7 +482,7 @@ for f in /etc/muzyka/*.env; do
   # shellcheck disable=SC1090
   . "$f"
   i=$(basename "$f" .env)
-  if bluetoothctl info "$BT_MAC" 2>/dev/null | grep -q "Connected: yes"; then bt="${G}● połączony${N}"; else bt="${R}○ niepołączony${N}"; fi
+  if timeout 3 bluetoothctl info "$BT_MAC" 2>/dev/null | grep -q "Connected: yes"; then bt="${G}● połączony${N}"; else bt="${R}○ niepołączony${N}"; fi
   if systemctl is-active --quiet "squeezelite@$i"; then sq="odtwarzacz działa"; else sq="${R}odtwarzacz stoi${N}"; fi
   printf '      %-26s %s, %s\n' "${PLAYER_NAME:0:26}" "$bt" "$sq"
 done
@@ -499,25 +502,34 @@ echo "      5 Restart muzyki    – gdy muzyka nagle ucichła"
 echo "      6 Strażnik muzyki   – automatyczny restart przy ciszy"
 echo "      7 Ustawienia        – adres LMS, ten ekran"
 echo
-echo "    Stan z: $(date '+%d.%m.%Y %H:%M:%S')"
+echo "    Stan z: $(date '+%d.%m.%Y %H:%M')"
 EKRAN_EOF
-  chmod 755 /usr/local/bin/multiroom-ekran.sh
+  chmod 755 /usr/local/bin/multiroom-ekran.sh.new
+  mv -f /usr/local/bin/multiroom-ekran.sh.new /usr/local/bin/multiroom-ekran.sh
 
-  cat >/usr/local/bin/multiroom-konsola <<'KONSOLA_EOF'
+  cat >/usr/local/bin/multiroom-konsola.new <<'KONSOLA_EOF'
 #!/bin/bash
 # Pokazuje ekran informacyjny na konsoli; Enter = zwykłe logowanie.
+# Ekran rysowany jest w całości i tylko wtedy, gdy coś się zmieniło
+# (bez przewijania i bez powtórzeń w historii konsoli).
 trap '' INT QUIT TSTP
+last=""
 while true; do
-  printf '\e[H\e[2J'
-  /usr/local/bin/multiroom-ekran.sh 2>/dev/null
-  printf '\n    \e[1m[Enter]\e[0m – zaloguj się          (ekran odświeża się co 5 s)\n'
+  cur=$(timeout 15 /usr/local/bin/multiroom-ekran.sh 2>/dev/null)
+  if [[ -n $cur && $cur != "$last" ]]; then
+    printf '\e[H\e[2J\e[3J%s\n\n    \e[1m[Enter]\e[0m – zaloguj się\n' "$cur"
+    last=$cur
+  fi
   if read -r -s -n 1 -t 5 _; then
-    printf '\e[H\e[2J'
+    printf '\e[H\e[2J\e[3J'
     exec /sbin/agetty -o '-p -- \u' --noclear -t 60 - "${TERM:-linux}"
   fi
 done
 KONSOLA_EOF
-  chmod 755 /usr/local/bin/multiroom-konsola
+  chmod 755 /usr/local/bin/multiroom-konsola.new
+  mv -f /usr/local/bin/multiroom-konsola.new /usr/local/bin/multiroom-konsola
+  EKRAN_CHANGED=0
+  [[ $old_k != "$(md5sum /usr/local/bin/multiroom-konsola)" ]] && EKRAN_CHANGED=1
 
   # po zalogowaniu też pokaż ekran (raz)
   cat >/etc/profile.d/multiroom.sh <<'EOF'
@@ -562,7 +574,15 @@ cmd_ekran() {
   case "${1:-auto}" in
     auto)   # przy każdym uruchomieniu menu: odśwież pliki; włącz, jeśli nie wyłączono ręcznie
       [[ -f $CONF_DIR/ekran.off ]] && return 0
-      if compgen -G "/etc/systemd/system/*getty*.d/multiroom.conf" >/dev/null; then write_ekran; else ekran_on; fi ;;
+      if compgen -G "/etc/systemd/system/*getty*.d/multiroom.conf" >/dev/null; then
+        write_ekran
+        if [[ ${EKRAN_CHANGED:-0} -eq 1 ]]; then   # nowa wersja ekranu – uruchom konsole od nowa
+          local units; mapfile -t units < <(getty_units)
+          [[ ${#units[@]} -gt 0 ]] && systemctl restart "${units[@]}"
+        fi
+      else
+        ekran_on
+      fi ;;
     on)  rm -f "$CONF_DIR/ekran.off"; ekran_on; echo "Ekran konsoli włączony." ;;
     off) touch "$CONF_DIR/ekran.off"; ekran_off; echo "Ekran konsoli wyłączony." ;;
     status) if [[ -f $CONF_DIR/ekran.off ]]; then echo OFF; else echo ON; fi ;;
