@@ -1,158 +1,169 @@
-# Multiroom na Proxmox
+# Multiroom on Proxmox
 
-System muzyczny multiroom dla domowego serwera **Proxmox VE**. Łączy **Lyrion Music Server (LMS)** z głośnikami **Bluetooth**: radio internetowe, własna biblioteka i kilka pokoi grających razem. Nie trzeba do tego Raspberry Pi ani osobnych odtwarzaczy.
+🇬🇧 **English** | 🇵🇱 [Polski](README.pl.md)
 
-## Co dostajesz
+A multiroom music system for a home **Proxmox VE** server. It combines **Lyrion Music Server (LMS)** with **Bluetooth speakers**: internet radio, your own music library, and several rooms playing in sync. You don't need a Raspberry Pi or a separate player for each speaker.
 
-- **Lyrion Music Server** (dawniej Logitech Media Server): radio internetowe, biblioteka plików, wtyczki, sterowanie z przeglądarki i telefonu.
-- **Głośniki Bluetooth jako odtwarzacze**. Każdy głośnik jest osobnym odtwarzaczem w LMS.
-- **Multiroom**. Głośniki można synchronizować, żeby grały to samo w kilku pokojach.
-- **Automatyczne ponowne łączenie** po wyłączeniu głośnika, restarcie albo zaniku prądu.
-- **Głośniki Wi-Fi z Chromecastem** (opcjonalnie, przez wtyczkę Cast Bridge), razem z głośnikami Bluetooth.
-- **Polecenie `multiroom`** z prostym menu do dodawania, testowania i usuwania głośników.
-- **Ekran informacyjny na konsoli kontenera**: po kliknięciu „Konsola” w Proxmoksie od razu widać adres panelu LMS, adres IP, stan głośników i opis menu. Enter otwiera zwykłe logowanie. Ekran wyłączysz w menu **Ustawienia**.
+> **Note:** the installer and the `multiroom` menu are currently in **Polish**. The steps below tell you what to choose at each point, so you can follow along without knowing Polish.
 
-## Wymagania
+## Features
 
-- Proxmox VE 8 lub nowszy
-- Adapter Bluetooth USB podłączony do serwera (sprawdzony: TP-Link UB500)
-- Dostęp do internetu podczas instalacji
+- **Lyrion Music Server** (formerly Logitech Media Server): internet radio, music library, plugins, control from a browser or phone.
+- **Bluetooth speakers as players**. Each speaker shows up in LMS as a separate player.
+- **Multiroom**. Speakers can be synchronized to play the same thing in several rooms.
+- **Automatic reconnect** after a speaker is switched off, a restart, or a power cut.
+- **Wi-Fi speakers with Chromecast** (optional, via the Cast Bridge plugin), alongside the Bluetooth speakers.
+- **`multiroom` command** with a simple menu to add, test, and remove speakers.
+- **Info screen on the container console**: open the container's "Console" in Proxmox and you see the LMS address, IP address, speaker status, and a description of the menu. Press Enter to get the normal login prompt. You can turn the screen off in the menu under **Ustawienia** (Settings).
 
-## Instalacja
+## Requirements
 
-W panelu Proxmoksa kliknij serwer, a potem **Shell**. Wklej:
+- Proxmox VE 8 or newer
+- A USB Bluetooth adapter plugged into the server (tested: TP-Link UB500)
+- Internet access during installation
+
+## Installation
+
+In the Proxmox web UI, click your node, then **Shell**. Paste:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/elektron81/multiroom-proxmox/main/muzyka-instalator.sh)"
 ```
 
-Wybierz **„Domyślna (zalecana)”** i poczekaj kilka minut. Na końcu instalator pokaże adres panelu LMS i zaproponuje dodanie pierwszego głośnika.
+Choose **„Domyślna (zalecana)”** (Default, recommended) and wait a few minutes. At the end, the installer shows the LMS web address and offers to add your first speaker.
 
-**Czas instalacji zależy od dysku:**
+**Installation time depends on the disk:**
 
-| Dysk, na którym powstaje kontener | Czas instalacji |
+| Disk where the container is created | Installation time |
 |---|---|
-| SSD / NVMe | ok. 3–5 minut |
-| HDD (dysk talerzowy) | **nawet 10–15 minut** |
+| SSD / NVMe | about 3–5 minutes |
+| HDD (spinning disk) | **up to 10–15 minutes** |
 
-Postęp widać na pasku w konsoli. Na dysku HDD pasek może na dłużej zatrzymać się przy instalacji pakietów. To normalne, nie przerywaj instalacji. W trybie **„Zaawansowana”** możesz wybrać, na którym dysku ma powstać kontener. Jeśli masz SSD, wybierz SSD.
+A progress bar shows how far the installation is. On an HDD the bar may sit still for a while during package installation. This is normal, so don't interrupt it. In **„Zaawansowana”** (Advanced) mode you can choose which disk the container goes on. If you have an SSD, pick it.
 
-## Dodawanie kolejnych głośników
+## Adding more speakers
 
-W konsoli Proxmoksa wpisz:
+In the Proxmox shell, type:
 
 ```bash
 multiroom
 ```
 
-Z menu wybierz **„Dodaj nowy głośnik”**, przełącz głośnik w tryb parowania i wybierz go z listy. Po około minucie głośnik pojawi się w LMS.
+Choose **„Dodaj nowy głośnik”** (Add new speaker), put the speaker into pairing mode, and select it from the list. After about a minute it appears in LMS.
 
-Na koniec kreator zaproponuje **dźwięk testowy**: dwa krótkie, ciche piknięcia „pip-pip” (1000 Hz, niecała sekunda). Jeśli je słyszysz, głośnik jest dobrze skonfigurowany. Ten sam test możesz powtórzyć w dowolnej chwili: `multiroom` → **„Test dźwięku”**. Jeśli nic nie słychać, sprawdź głośność na głośniku i jego stan w menu **„Stan głośników”**.
+At the end, the wizard offers a **test sound**: two short, quiet beeps (1000 Hz, under a second). If you hear them, the speaker is set up correctly. You can repeat the test any time: `multiroom` → **„Test dźwięku”** (Sound test). If you hear nothing, check the volume on the speaker and its status under **„Stan głośników”** (Speaker status).
 
-Granie w kilku pokojach naraz: w LMS wybierz odtwarzacz, otwórz **Ustawienia**, a potem **Synchronizuj**.
+To play in several rooms at once: in LMS, select a player, open **Settings**, then **Synchronize**.
 
-## Głośniki Wi-Fi (Chromecast)
+## Wi-Fi speakers (Chromecast)
 
-Oprócz głośników Bluetooth do LMS można dodać głośniki i soundbary z **Chromecastem** (np. JBL Bar, JBL Authentics, Google Nest). Robi to wtyczka **Cast Bridge**. Głośnik pojawia się wtedy w LMS jako zwykły odtwarzacz i można go synchronizować z pozostałymi. Sprawdzone na **JBL Bar 500MK2**.
+Besides Bluetooth speakers, you can add speakers and soundbars with **Chromecast** (e.g. JBL Bar, JBL Authentics, Google Nest). This is done with the **Cast Bridge** plugin. The speaker then appears in LMS as a regular player. Tested with the **JBL Bar 500MK2**.
 
-**1. Sprawdź, czy głośnik jest w sieci** (Shell Proxmoksa, `NUMER` = numer kontenera):
+**1. Check that the speaker is on the network** (Proxmox shell, `CTID` = container number):
 ```bash
-pct exec NUMER -- bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get install -y --no-install-recommends avahi-daemon avahi-utils >/dev/null 2>&1; systemctl start avahi-daemon; sleep 5; timeout 20 avahi-browse -artp 2>/dev/null | awk -F";" "\$1==\"=\" && \$3==\"IPv4\" && \$5 ~ /googlecast|airplay/ {print \$5\"  |  \"\$4\"  |  \"\$8}" | sort -u; systemctl disable --now avahi-daemon >/dev/null 2>&1'
+pct exec CTID -- bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get install -y --no-install-recommends avahi-daemon avahi-utils >/dev/null 2>&1; systemctl start avahi-daemon; sleep 5; timeout 20 avahi-browse -artp 2>/dev/null | awk -F";" "\$1==\"=\" && \$3==\"IPv4\" && \$5 ~ /googlecast|airplay/ {print \$5\"  |  \"\$4\"  |  \"\$8}" | sort -u; systemctl disable --now avahi-daemon >/dev/null 2>&1'
 ```
-Głośnik z wpisem `_googlecast` obsługuje Chromecast.
+A speaker listed with `_googlecast` supports Chromecast.
 
-**2. Aktywuj Chromecast w głośniku.** Wiele głośników (np. JBL z aplikacją JBL One) wymaga jednorazowej konfiguracji w aplikacji **Google Home**. Bez tego głośnik jest widoczny w sieci, ale nie chce grać. Sprawdź, czy da się na niego przesłać muzykę z telefonu.
+**2. Activate Chromecast on the speaker.** Many speakers (e.g. JBL models using the JBL One app) need a one-time setup in the **Google Home** app. Until then the speaker is visible on the network but refuses to play. Check that you can cast music to it from your phone.
 
-**3. Zainstaluj wtyczkę:** w LMS **Ustawienia → Wtyczki → Cast Bridge → Zastosuj** i restart LMS.
+**3. Install the plugin:** in LMS go to **Settings → Plugins → Cast Bridge → Apply**, then restart LMS.
 
-**4. Ustaw wtyczkę** (zamień `NUMER` na numer kontenera, a `192.168.1.17` na adres serwera Proxmox). Polecenie wybiera wersję programu, która działa w kontenerze, przypisuje most do naszego serwera i włącza zamianę dźwięku na FLAC:
+**4. Configure the plugin** (replace `CTID` with the container number and `192.168.1.17` with your Proxmox server's IP). This command picks the program version that works inside the container, ties the bridge to this server, and turns on conversion to FLAC:
 ```bash
-pct exec NUMER -- bash -c 'IP=192.168.1.17; B=/var/lib/squeezeboxserver/cache/InstalledPlugins/Plugins/CastBridge/Bin; P=/var/lib/squeezeboxserver/prefs/plugin/castbridge.prefs; X=/var/lib/squeezeboxserver/prefs/castbridge.xml; systemctl stop lyrionmusicserver; sleep 2; chmod +x $B/squeeze2cast-linux-x86_64-static; sed -i "/^bin:/d; /^opts:/d" $P; echo "bin: squeeze2cast-linux-x86_64-static" >> $P; echo "opts: -b $IP -s $IP" >> $P; [ -f $X ] && sed -i "s|<mode>thru</mode>|<mode>flc</mode>|g" $X; systemctl start lyrionmusicserver'
+pct exec CTID -- bash -c 'IP=192.168.1.17; B=/var/lib/squeezeboxserver/cache/InstalledPlugins/Plugins/CastBridge/Bin; P=/var/lib/squeezeboxserver/prefs/plugin/castbridge.prefs; X=/var/lib/squeezeboxserver/prefs/castbridge.xml; systemctl stop lyrionmusicserver; sleep 2; chmod +x $B/squeeze2cast-linux-x86_64-static; sed -i "/^bin:/d; /^opts:/d" $P; echo "bin: squeeze2cast-linux-x86_64-static" >> $P; echo "opts: -b $IP -s $IP" >> $P; [ -f $X ] && sed -i "s|<mode>thru</mode>|<mode>flc</mode>|g" $X; systemctl start lyrionmusicserver'
 ```
-Jeśli plik `castbridge.xml` jeszcze nie istniał, uruchom polecenie drugi raz po około minucie, gdy most utworzy już ten plik.
+If `castbridge.xml` didn't exist yet, run the command again after about a minute, once the bridge has created the file.
 
-Po minucie głośnik pojawi się na liście odtwarzaczy w LMS.
+After a minute the speaker appears in the LMS player list.
 
-**Dlaczego te ustawienia:**
-- **Wersja „static” programu:** zwykła wersja nie uruchamia się w kontenerze, bo brakuje jej bibliotek.
-- **`-s` (adres serwera):** jeśli w sieci działa drugi LMS albo **Music Assistant / Home Assistant**, most może podłączyć głośniki do niego zamiast do naszego serwera.
-- **`flc`:** część głośników nie przyjmuje radia w formacie AAC. Most zamienia wtedy każdy strumień na FLAC.
+**Why these settings:**
+- **"static" program version:** the regular version doesn't start in the container because some libraries are missing.
+- **`-s` (server address):** if another LMS or **Music Assistant / Home Assistant** runs on your network, the bridge may attach the speakers to that server instead of this one.
+- **`flc`:** some speakers don't accept radio streams in AAC format. The bridge converts every stream to FLAC.
 
-**Synchronizacja z głośnikami Bluetooth:** Chromecast ma większe opóźnienie, zwykle 1–2 s. Przy głośniku Bluetooth ustaw **Synchronization Delay** ok. 1000 ms i dostrój na słuch.
+**Syncing with Bluetooth speakers is a compromise.** Chromecast has its own buffer and delay (1–2 s), and the bridge doesn't report the exact playback position. In a group with Bluetooth speakers, players may go silent for a moment or behave unpredictably. This setup works best:
+- the Chromecast speaker **used on its own** (e.g. a soundbar in the living room),
+- **only Bluetooth speakers synchronized** with each other.
 
-## Aktualizacja kreatora
+If you still want to group them, in the Chromecast player's settings (**Settings → Player → Synchronization**) turn off **"Maintain synchronization while playing"** and **"Synchronize volume"**. On the Bluetooth speaker, set **Synchronization Delay** to about 1000 ms.
 
-Nową wersję polecenia `multiroom` pobierzesz z GitHuba jednym poleceniem w konsoli Proxmoksa:
+**Volume:** the LMS volume slider controls the Chromecast speaker's own volume.
+
+## Updating the menu
+
+Get the latest version of the `multiroom` command from GitHub with one command in the Proxmox shell:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/elektron81/multiroom-proxmox/main/muzyka-kreator.sh -o /usr/local/bin/multiroom && chmod +x /usr/local/bin/multiroom && echo OK
 ```
 
-Twoje głośniki i ustawienia zostają bez zmian.
+Your speakers and settings stay unchanged.
 
-## Adapter Bluetooth
+## Bluetooth adapter
 
-Możesz użyć dowolnego adaptera USB, który **obsługuje Linux**. Większość działa od razu, bez instalowania sterowników.
+Any USB adapter **supported by Linux** works. Most work out of the box, with no drivers to install.
 
-| Chip w adapterze | Przykładowe modele | Uwagi |
+| Chip in the adapter | Example models | Notes |
 |---|---|---|
-| **Realtek RTL8761B / RTL8761BU** | TP-Link UB500, UGREEN BT 5.0, ASUS USB-BT500 | najlepszy wybór, są też wersje z anteną |
-| **Intel** (AX200, AX210 itp.) | Bluetooth wbudowany w płytę główną lub kartę Wi-Fi | działa bez problemu |
-| **CSR8510** | starsze, tanie adaptery BT 4.0 | działają, ale podróbki bywają kapryśne |
+| **Realtek RTL8761B / RTL8761BU** | TP-Link UB500, UGREEN BT 5.0, ASUS USB-BT500, EDUP EP-B3536 | best choice; versions with an antenna exist |
+| **Intel** (AX200, AX210, etc.) | Bluetooth built into the motherboard or a Wi-Fi card | works well |
+| **CSR8510** | older, cheap BT 4.0 adapters | work, but clones can be unreliable |
 
-**Lepiej unikać** tanich adapterów „Bluetooth 5.3/5.4” na chipach **Actions ATS2851** i **Barrot**. Często działają tylko na Windowsie. Przy zakupie szukaj w opisie słów **„Linux”** albo **„RTL8761B”**. Wersja Bluetootha nie ma dużego znaczenia dla muzyki. Na zasięg bardziej wpływa zewnętrzna antena.
+**Avoid** cheap "Bluetooth 5.3/5.4" adapters with **Actions ATS2851** or **Barrot** chips (e.g. EDUP EP-B3552). They often work only on Windows. When buying, look for **"Linux"** or **"RTL8761B"** in the description. The Bluetooth version barely matters for music. An external antenna matters more for range.
 
-### Jak sprawdzić, czy adapter działa
+### How to check that the adapter works
 
-Podłącz adapter do serwera i wklej w konsoli Proxmoksa:
+Plug the adapter into the server and paste in the Proxmox shell:
 
 ```bash
 lsusb | tail -n 5; echo ----; ls /sys/class/bluetooth; echo ----; dmesg | grep -i bluetooth | tail -n 5
 ```
 
-- W środkowej części widać **`hci0`** (albo `hci1`): adapter działa.
-- Jest pusto albo pojawia się błąd ze słowem `firmware`: Linux nie obsługuje tego adaptera albo brakuje mu sterownika. Najprościej wymienić go na model z tabeli powyżej.
+- **`hci0`** (or `hci1`) appears in the middle section: the adapter works.
+- The middle section is empty, or there's an error mentioning `firmware`: Linux doesn't support this adapter or a driver is missing. The easiest fix is to use a model from the table above.
 
-### Wymiana adaptera na inny
+### Replacing the adapter
 
-1. Wyjmij stary adapter, włóż nowy i sprawdź go poleceniem powyżej.
-2. Zrestartuj kontener: `pct reboot NUMER` (zamień `NUMER` na numer kontenera).
-3. **Sparuj głośniki od nowa.** Parowanie jest przypisane do konkretnego adaptera. W menu `multiroom`, dla każdego głośnika: **Usuń głośnik** (z rozparowaniem), a potem **Dodaj nowy głośnik**. Nadaj głośnikom te same nazwy co wcześniej, a LMS zachowa ich ustawienia.
+1. Remove the old adapter, plug in the new one, and check it with the command above.
+2. Restart the container: `pct reboot CTID` (replace `CTID` with the container number).
+3. **Pair the speakers again.** Pairing is tied to a specific adapter. In the `multiroom` menu, for each speaker: **„Usuń głośnik”** (Remove speaker, including unpairing), then **„Dodaj nowy głośnik”** (Add new speaker). Give the speakers the same names as before, and LMS keeps their settings.
 
-## Wskazówki
+## Tips
 
-- **Strażnik muzyki (automatyczny restart).** W menu `multiroom` wybierz **„Strażnik muzyki”** i włącz go. Co 5 minut sprawdza, czy głośniki, które mają grać, faktycznie grają. Jeśli radio się zawiesi (tryb „gra”, a cisza) albo przerwie przez błąd strumienia, strażnik sam zrestartuje LMS i wznowi muzykę. Robi najwyżej 3 restarty na godzinę. Muzyki zatrzymanej ręcznie nie rusza. Domyślnie jest **wyłączony**. W tym samym menu możesz go wyłączyć i zobaczyć jego dziennik.
-- **Muzyka nagle ucichła, a głośnik jest połączony.** Wpisz `multiroom` i wybierz **„Uruchom ponownie muzykę”**. Menu zrestartuje LMS i odtwarzacze. Jeśli nie gra tylko jedna stacja, jej adres mógł się zmienić. Wyszukaj ją ponownie przez **Radio → TuneIn** albo **Radio Browser**.
-- **Radio długo „buforuje” albo nie startuje.** Jeśli na serwerze Proxmox działa **Tailscale**, kontener może korzystać z jego DNS (`100.100.100.100`) i przez to czasem nie znajdować serwerów radia. Instalator ustawia wtedy sam DNS routera. W starszej instalacji zrób to ręcznie (zamień `NUMER` na numer kontenera, a `192.168.1.1` na adres swojego routera):
+- **Music watchdog (automatic restart).** In the `multiroom` menu, choose **„Strażnik muzyki”** (Music watchdog) and turn it on. Every 5 minutes it checks that speakers which should be playing actually are. If the radio stalls (playing, but silent) or stops because of a stream error, the watchdog restarts LMS and resumes playback. It does at most 3 restarts per hour and leaves music you stopped yourself alone. It is **off** by default. In the same menu you can turn it off and view its log.
+- **Music suddenly stopped, but the speaker is connected.** Type `multiroom` and choose **„Uruchom ponownie muzykę”** (Restart music). This restarts LMS and the players. If only one station won't play, its address may have changed. Search for it again via **Radio → TuneIn** or **Radio Browser**.
+- **Radio keeps "buffering" or won't start.** If **Tailscale** runs on the Proxmox server, the container may use its DNS (`100.100.100.100`) and sometimes fail to find radio servers. The installer sets the router's DNS automatically in that case. On an older install, do it by hand (replace `CTID` with the container number and `192.168.1.1` with your router's address):
   ```bash
-  pct set NUMER --nameserver "192.168.1.1 1.1.1.1" && pct reboot NUMER
+  pct set CTID --nameserver "192.168.1.1 1.1.1.1" && pct reboot CTID
   ```
-- **Echo między głośnikami.** Każdy głośnik Bluetooth ma inne opóźnienie. Wyrównasz je w LMS: **Ustawienia → Odtwarzacz → Audio → Synchronization Delay**. Ustaw je w tym głośniku, który gra wcześniej, np. 100 ms, i dostrój na słuch.
-- **Przerywanie dźwięku.** Postaw adapter USB z dala od obudowy serwera (przedłużacz USB, port USB 2.0). Porty USB 3.0 zakłócają Bluetooth.
-- **Zasięg.** Wszystkie głośniki muszą być w zasięgu adaptera w serwerze, czyli zwykle około 10 m, mniej przez ściany.
-- **Strona ustawień LMS się nie otwiera („restricted to the local network”).** LMS pokazuje ustawienia tylko komputerom z sieci lokalnej. Jeśli łączysz się przez **Tailscale** albo VPN, wyłącz go na chwilę albo otwórz panel z urządzenia w domowym Wi-Fi. Możesz też na stałe wyłączyć tę blokadę (zamień `NUMER` na numer kontenera):
+- **Echo between speakers.** Each Bluetooth speaker has a different delay. Even it out in LMS: **Settings → Player → Audio → Synchronization Delay**. Set it on the speaker that plays earlier, e.g. 100 ms, and fine-tune by ear.
+- **Audio dropouts.** Keep the USB adapter away from the server case (use a USB extension cable and a USB 2.0 port). USB 3.0 ports interfere with Bluetooth. One adapter comfortably handles 2–3 speakers playing at once.
+- **Range.** All speakers must be within range of the adapter in the server, usually about 10 m, less through walls.
+- **LMS settings page won't open ("restricted to the local network").** LMS only shows its settings to devices on the local network. If you connect through **Tailscale** or a VPN, turn it off for a moment or open the page from a device on your home Wi-Fi. You can also turn this restriction off permanently (replace `CTID` with the container number):
   ```bash
-  pct exec NUMER -- bash -c 'systemctl stop lyrionmusicserver; f=/var/lib/squeezeboxserver/prefs/server.prefs; grep -q "^protectSettings:" $f && sed -i "s/^protectSettings:.*/protectSettings: 0/" $f || echo "protectSettings: 0" >> $f; systemctl start lyrionmusicserver'
+  pct exec CTID -- bash -c 'systemctl stop lyrionmusicserver; f=/var/lib/squeezeboxserver/prefs/server.prefs; grep -q "^protectSettings:" $f && sed -i "s/^protectSettings:.*/protectSettings: 0/" $f || echo "protectSettings: 0" >> $f; systemctl start lyrionmusicserver'
   ```
-- **Kopia zapasowa.** Dodaj kontener do zadania backupu: **Centrum danych → Kopia zapasowa**.
+- **Backup.** Add the container to a backup job: **Datacenter → Backup**.
 
-## Jak to działa
+## How it works
 
-Wszystko działa w jednym uprzywilejowanym kontenerze LXC, który korzysta z sieci hosta (`lxc.net.0.type: none`). Bluetooth w Linuksie działa tylko w głównej przestrzeni sieciowej. Dla każdego głośnika tworzone są:
+Everything runs in a single privileged LXC container that shares the host's network (`lxc.net.0.type: none`). On Linux, Bluetooth only works in the main network namespace. For each speaker, the setup creates:
 
-- urządzenie ALSA `bt_<nazwa>` (przez BlueALSA),
-- usługa `squeezelite@<nazwa>` z unikalnym adresem MAC odtwarzacza,
-- wpis w `/etc/muzyka/<nazwa>.env`.
+- an ALSA device `bt_<name>` (via BlueALSA),
+- a `squeezelite@<name>` service with a unique player MAC address,
+- an entry in `/etc/muzyka/<name>.env`.
 
-Usługa `muzyka-bt-reconnect` co 30 s sprawdza połączenia i w razie potrzeby łączy ponownie. BlueALSA działa ze średnią jakością SBC (około 230 kb/s), żeby kilka głośników na jednym adapterze grało bez przerw.
+The `muzyka-bt-reconnect` service checks the connections every 30 s and reconnects when needed. BlueALSA uses medium SBC quality (about 230 kb/s) so several speakers on one adapter play without dropouts.
 
-## Pliki
+## Files
 
-| Plik | Opis |
+| File | Description |
 |---|---|
-| `muzyka-instalator.sh` | Pełna instalacja od zera (kontener, LMS, Bluetooth, kreator). |
-| `muzyka-kreator.sh` | Sam kreator głośników. Przydaje się, gdy LMS i kontener już masz. |
+| `muzyka-instalator.sh` | Full installation from scratch (container, LMS, Bluetooth, menu). |
+| `muzyka-kreator.sh` | The speaker menu on its own. Useful if you already have LMS and a container. |
+| `README.pl.md` | This description in Polish. |
 
-## Licencja
+## License
 
-MIT: możesz używać, zmieniać i udostępniać dalej.
+MIT: you may use, modify, and share it.
